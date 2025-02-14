@@ -10,8 +10,8 @@ import (
 
 // Global configuration
 var credentials string
-var projectId string
-var database string
+var projectId string = "henry-glcoud-production"
+var database string = "staging"
 
 // Common errors
 func cliClientError(err error) *cli.ExitError {
@@ -108,6 +108,10 @@ func main() {
 				cli.StringFlag{
 					Name:  "src-projectid, sp",
 					Usage: "Source project ID",
+				},
+				cli.StringFlag{
+					Name:  "dest-database, dd",
+					Usage: "Target database name",
 				},
 				cli.BoolFlag{
 					Name:  "merge",

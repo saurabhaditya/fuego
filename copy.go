@@ -1,15 +1,16 @@
 package main
 
 import (
-	"cloud.google.com/go/firestore"
 	"context"
 	"fmt"
-	"github.com/urfave/cli"
-	"google.golang.org/api/iterator"
 	"log"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"cloud.google.com/go/firestore"
+	"github.com/urfave/cli"
+	"google.golang.org/api/iterator"
 )
 
 type PathType int
@@ -21,14 +22,17 @@ const (
 
 func (p PathType) String() string {
 	switch p {
-	case DocumentPath: return "Document"
-	case CollectionPath: return "Collection"
-	default:         return "UNKNOWN"
+	case DocumentPath:
+		return "Document"
+	case CollectionPath:
+		return "Collection"
+	default:
+		return "UNKNOWN"
 	}
 }
 
 type CopyOption struct {
-	merge bool
+	merge     bool
 	overwrite bool
 }
 
@@ -55,6 +59,8 @@ func copyCommandAction(c *cli.Context) error {
 	sp := c.String("src-projectid")
 	dp := c.String("dest-projectid")
 
+	dd := c.String("dest-database")
+
 	if sc == "" {
 		sc = credentials
 	}
@@ -71,8 +77,12 @@ func copyCommandAction(c *cli.Context) error {
 		dp = projectId
 	}
 
+	if dd == "" {
+		dd = database
+	}
+
 	option := CopyOption{
-		merge:    merge,
+		merge:     merge,
 		overwrite: overwrite,
 	}
 
@@ -88,7 +98,7 @@ func copyCommandAction(c *cli.Context) error {
 		return cliClientError(err)
 	}
 
-	targetClient, err := createClientWithProjectId(dc, dp)
+	targetClient, err := createClientWithProjectIdAndDatabase(dc, dp, dd)
 	if err != nil {
 		return cliClientError(err)
 	}
@@ -99,7 +109,7 @@ func copyCommandAction(c *cli.Context) error {
 			sourceClient.Collection(sourceCollectionOrDocumentPath),
 			targetClient.Collection(targetCollectionOrDocumentPath),
 			option,
-			)
+		)
 	}
 
 	if sType == DocumentPath {
@@ -108,7 +118,7 @@ func copyCommandAction(c *cli.Context) error {
 			sourceClient.Doc(sourceCollectionOrDocumentPath),
 			targetClient.Doc(targetCollectionOrDocumentPath),
 			option,
-			)
+		)
 	}
 
 	log.Println("Done")
@@ -116,28 +126,28 @@ func copyCommandAction(c *cli.Context) error {
 	return nil
 }
 
-func copyDocument(source, target *firestore.DocumentRef, option CopyOption)  {
+func copyDocument(source, target *firestore.DocumentRef, option CopyOption) {
 	client := NewCopyClient(200, option)
 
 	client.Run(
 		NewDocumentCopyJob(source, target),
 		NewCollectionIterationJob(source, target),
-		)
+	)
 }
 
-func copyCollection(source, target *firestore.CollectionRef, option CopyOption)  {
+func copyCollection(source, target *firestore.CollectionRef, option CopyOption) {
 	client := NewCopyClient(200, option)
 
 	client.Run(NewDocumentIterationJob(source, target))
 }
 
 type CopyClient struct {
-	jobQueue []CopyJob
+	jobQueue      []CopyJob
 	workerQueue   []chan CopyJob
 	jobChannel    chan CopyJob
 	workerChannel chan chan CopyJob
-	WorkerCount int
-	Option CopyOption
+	WorkerCount   int
+	Option        CopyOption
 }
 
 func NewCopyClient(workerCount int, option CopyOption) CopyClient {
@@ -149,7 +159,7 @@ func NewCopyClient(workerCount int, option CopyOption) CopyClient {
 	}
 }
 
-func (client *CopyClient) Run(seeds... CopyJob)  {
+func (client *CopyClient) Run(seeds ...CopyJob) {
 	out := make(chan []CopyJob)
 
 	go func() {
@@ -173,23 +183,23 @@ func (client *CopyClient) Run(seeds... CopyJob)  {
 	// match workers with jobs
 	done := client.scheduleJobs()
 
-	<- done
+	<-done
 }
 
-func (client *CopyClient) submitJob(job CopyJob)  {
+func (client *CopyClient) submitJob(job CopyJob) {
 	client.jobChannel <- job
 }
 
-func (client *CopyClient) workerReady(w chan CopyJob)  {
+func (client *CopyClient) workerReady(w chan CopyJob) {
 	client.workerChannel <- w
 }
 
-func (client *CopyClient) workerInput() chan CopyJob  {
+func (client *CopyClient) workerInput() chan CopyJob {
 	return make(chan CopyJob)
 }
 
 func (client *CopyClient) createWorkers(workerOutput chan []CopyJob) {
-	for i:=0; i < client.WorkerCount; i++ {
+	for i := 0; i < client.WorkerCount; i++ {
 		in := client.workerInput()
 		go func(in chan CopyJob) {
 			for {
@@ -209,10 +219,10 @@ func (client *CopyClient) createWorkers(workerOutput chan []CopyJob) {
 	}
 }
 
-func (client *CopyClient) scheduleJobs() <- chan struct{} {
+func (client *CopyClient) scheduleJobs() <-chan struct{} {
 	done := make(chan struct{})
 	go func() {
-		j := <- client.jobChannel
+		j := <-client.jobChannel
 		client.jobQueue = append(client.jobQueue, j)
 
 		for {
@@ -225,14 +235,14 @@ func (client *CopyClient) scheduleJobs() <- chan struct{} {
 			}
 
 			select {
-			case jj := <- client.jobChannel:
+			case jj := <-client.jobChannel:
 				client.jobQueue = append(client.jobQueue, jj)
-			case w := <- client.workerChannel:
+			case w := <-client.workerChannel:
 				client.workerQueue = append(client.workerQueue, w)
 			case activeWorker <- activeJob:
 				client.jobQueue = client.jobQueue[1:]
 				client.workerQueue = client.workerQueue[1:]
-			case <- time.After(time.Second * 2):
+			case <-time.After(time.Second * 2):
 				// no more jobs
 				if len(client.jobQueue) == 0 && len(client.workerQueue) == client.WorkerCount {
 					done <- struct{}{}
@@ -248,10 +258,10 @@ var ops int32
 
 type CopyWorker struct {
 	Overwrite bool
-	Merge bool
+	Merge     bool
 }
 
-func (w *CopyWorker) handleJob(j CopyJob) ([]CopyJob, error)  {
+func (w *CopyWorker) handleJob(j CopyJob) ([]CopyJob, error) {
 	var result []CopyJob
 
 	if j.name == "iterateCollection" {
@@ -358,7 +368,7 @@ type CopyJob struct {
 	documentRef *firestore.DocumentRef
 
 	collectionIterator *firestore.CollectionIterator
-	targetDocumentRef *firestore.DocumentRef
+	targetDocumentRef  *firestore.DocumentRef
 
 	documentRefIterator *firestore.DocumentRefIterator
 	targetCollectionRef *firestore.CollectionRef
@@ -366,12 +376,11 @@ type CopyJob struct {
 
 func NewCollectionIterationJob(documentRef *firestore.DocumentRef, targetDocumentRef *firestore.DocumentRef) CopyJob {
 	return CopyJob{
-		name:                "iterateCollection",
-		collectionIterator:  documentRef.Collections(context.Background()),
-		targetDocumentRef:   targetDocumentRef,
+		name:               "iterateCollection",
+		collectionIterator: documentRef.Collections(context.Background()),
+		targetDocumentRef:  targetDocumentRef,
 	}
 }
-
 
 func NewDocumentIterationJob(collectionRef *firestore.CollectionRef, targetCollectionRef *firestore.CollectionRef) CopyJob {
 	return CopyJob{
@@ -383,8 +392,8 @@ func NewDocumentIterationJob(collectionRef *firestore.CollectionRef, targetColle
 
 func NewDocumentCopyJob(documentRef *firestore.DocumentRef, targetDocumentRef *firestore.DocumentRef) CopyJob {
 	return CopyJob{
-		name:                "copyDocument",
-		documentRef:         documentRef,
-		targetDocumentRef:   targetDocumentRef,
+		name:              "copyDocument",
+		documentRef:       documentRef,
+		targetDocumentRef: targetDocumentRef,
 	}
 }
