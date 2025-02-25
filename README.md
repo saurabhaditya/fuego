@@ -1,5 +1,12 @@
  *PLEASE READ THE [STABLE VERSION DOCUMENTATION](https://sgarciac.github.io/fuego/) IF YOU ONLY WANT TO USE FUEGO*
 
+# Examples
+```sh
+fuego query --orderby updatedAt --orderdir DESC --orderby __name__ --orderdir ASC documents "orgId == 'hks.com'" "presentedToClient == true" --select ID --select assetClass --select deckType --limit 20
+fuego get documents SqSKxLbyTWrFc1c3Sj0P | grep -E "rowHeight|fontSize"
+fuego query --orderby updatedAt --orderdir DESC --orderby __name__ --orderdir ASC documents "orgId == '.com'" "presentedToClient == true" --select ID --select assetClass --select deckType --limit 20 | grep ID | cut -d':' -f2 | cut -d'"' -f2 | xargs -n 1 fuego get documents | grep -E 'fontSize|rowHeight'
+```
+
 # fuego
 
 [![Mentioned in Awesome Firebase](https://awesome.re/mentioned-badge.svg)](https://github.com/jthegedus/awesome-firebase)
