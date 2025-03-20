@@ -2,9 +2,19 @@
 
 # Examples
 ```sh
+# copy to staging
 fuego copy --dest-database staging /documents/MIIQulUKXVMYQTig8AmC /documents/MIIQulUKXVMYQTig8AmC
+
+# search by street number
+fuego query documents "orgId == 'jlmcre.com'" "address.streetNumber == '4330'" --select ID --select status
+
+# search and select fields
 fuego query --orderby updatedAt --orderdir DESC --orderby __name__ --orderdir ASC documents "orgId == 'hks.com'" "presentedToClient == true" --select ID --select assetClass --select deckType --limit 20
+
+# see specific attributes
 fuego get documents SqSKxLbyTWrFc1c3Sj0P | grep -E "rowHeight|fontSize"
+
+# chaining
 fuego query --orderby updatedAt --orderdir DESC --orderby __name__ --orderdir ASC documents "orgId == '.com'" "presentedToClient == true" --select ID --select assetClass --select deckType --limit 20 | grep ID | cut -d':' -f2 | cut -d'"' -f2 | xargs -n 1 fuego get documents | grep -E 'fontSize|rowHeight'
 ```
 
