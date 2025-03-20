@@ -26,6 +26,40 @@ A command-line firestore client.
 
 ## Installation
 
+### Bash installation from .env
+To setup and install fuego:
+
+From server directory where you have .env, copy firestore key:
+
+```sh
+rg FIREBASE_JSON .env | cut -d'=' -f2 > ~/credentials/firebase.json
+export GOOGLE_APPLICATION_CREDENTIALS=$HOME/credentials/firebase.json
+```
+Then clone and install
+
+```sh
+cd
+git clone https://github.com/saurabhaditya/fuego.git
+cd fuego
+go install
+ls $HOME/go/bin
+```
+
+Let me know if these give any issues depending on your local terminal, PATH may differ.
+
+Add these lines to your ~/.bash_profile
+
+```sh
+export GOOGLE_APPLICATION_CREDENTIALS=$HOME/credentials/firebase.json
+export PATH="$HOME/go/bin:$PATH"
+```
+
+A new terminal will pick up fuego after this, or you can source in the current terminal
+
+```sh
+source ~/.bash_profile
+```
+
 ### Precompiled binaries
 
 Download one of the precompiled binaries from the [latest
