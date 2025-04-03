@@ -94,6 +94,10 @@ func main() {
 			Action:    copyCommandAction,
 			Flags: []cli.Flag{
 				cli.StringFlag{
+					Name:  "path",
+					Usage: "Copy specific path from source document (e.g. --path=data.id or --path=address)",
+				},
+				cli.StringFlag{
 					Name:  "dest-credentials, dc",
 					Usage: "Google application target project credentials from `FILE`",
 				},

@@ -34,6 +34,7 @@ func (p PathType) String() string {
 type CopyOption struct {
 	merge     bool
 	overwrite bool
+	path      string // Path to copy from source document
 }
 
 func pathType(p string) PathType {
@@ -52,6 +53,7 @@ func copyCommandAction(c *cli.Context) error {
 
 	merge := c.Bool("merge")
 	overwrite := c.Bool("overwrite")
+	path := c.String("path")
 
 	sc := c.String("src-credentials")
 	dc := c.String("dest-credentials")
@@ -84,6 +86,7 @@ func copyCommandAction(c *cli.Context) error {
 	option := CopyOption{
 		merge:     merge,
 		overwrite: overwrite,
+		path:      path,
 	}
 
 	sType := pathType(sourceCollectionOrDocumentPath)
@@ -152,6 +155,8 @@ type CopyClient struct {
 
 func NewCopyClient(workerCount int, option CopyOption) CopyClient {
 	return CopyClient{
+		jobQueue:      make([]CopyJob, 0),
+		workerQueue:   make([]chan CopyJob, 0),
 		jobChannel:    make(chan CopyJob),
 		workerChannel: make(chan chan CopyJob),
 		WorkerCount:   workerCount,
@@ -200,22 +205,24 @@ func (client *CopyClient) workerInput() chan CopyJob {
 
 func (client *CopyClient) createWorkers(workerOutput chan []CopyJob) {
 	for i := 0; i < client.WorkerCount; i++ {
+		worker := &CopyWorker{
+			Overwrite: client.Option.overwrite,
+			Merge:     client.Option.merge,
+			Option:    client.Option,
+		}
 		in := client.workerInput()
-		go func(in chan CopyJob) {
+		go func(in chan CopyJob, worker *CopyWorker) {
 			for {
 				client.workerReady(in)
 				j := <-in
-				w := CopyWorker{
-					Overwrite: client.Option.overwrite,
-					Merge:     client.Option.merge,
-				}
-				jobs, err := w.handleJob(j)
+				j.worker = worker
+				jobs, err := j.worker.handleJob(j)
 				if err != nil {
 					continue
 				}
 				workerOutput <- jobs
 			}
-		}(in)
+		}(in, worker)
 	}
 }
 
@@ -259,6 +266,7 @@ var ops int32
 type CopyWorker struct {
 	Overwrite bool
 	Merge     bool
+	Option    CopyOption
 }
 
 func (w *CopyWorker) handleJob(j CopyJob) ([]CopyJob, error) {
@@ -315,63 +323,72 @@ func (w *CopyWorker) handleDocumentIterationJob(j CopyJob) ([]CopyJob, error) {
 }
 
 func (w *CopyWorker) handleCopyDocumentJob(j CopyJob) ([]CopyJob, error) {
-	var result []CopyJob
-
-	targetDoc, err := j.targetDocumentRef.Get(context.Background())
-
-	if targetDoc == nil {
-		if err != nil {
-			log.Printf("get document %s error: %s\n", j.targetDocumentRef.Path, err)
-			return result, err
-		}
-		return result, nil
-	}
-
-	if targetDoc.Exists() && !w.Overwrite {
-		log.Printf("skipped document %s, because it already exists. use --overwrite to overwrite \n", j.targetDocumentRef.Path)
-		return result, nil
-	}
-
-	sourceDoc, err := j.documentRef.Get(context.Background())
-
-	if sourceDoc == nil {
-		if err != nil {
-			log.Printf("get document %s error: %s\n", j.documentRef.Path, err)
-			return result, err
-		}
-		return result, nil
-	}
-
-	var options []firestore.SetOption
-	if w.Merge {
-		options = append(options, firestore.MergeAll)
-	}
-
 	atomic.AddInt32(&ops, 1)
+	if ops%100 == 0 {
+		log.Printf("Copied %d documents", ops)
+	}
 
-	if sourceDoc.Exists() {
-		log.Printf("set document: %d, %s \n", ops, j.targetDocumentRef.Path)
-		_, err = j.targetDocumentRef.Set(context.Background(), sourceDoc.Data(), options...)
+	ctx := context.Background()
+	snap, err := j.documentRef.Get(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to get document %s: %v", j.documentRef.Path, err)
+	}
+
+	data := snap.Data()
+	if w.Option.path != "" {
+		// Handle path-based copying
+		if data == nil {
+			return nil, fmt.Errorf("Source document is empty")
+		}
+
+		pathParts := strings.Split(w.Option.path, ".")
+		if len(pathParts) == 0 {
+			return nil, fmt.Errorf("Invalid path: %s", w.Option.path)
+		}
+
+		value, err := getValueAtPath(data, pathParts)
 		if err != nil {
-			log.Printf("copy document %s to %s error: %s\n", j.documentRef.Path, j.targetDocumentRef.Path, err)
-			return result, err
+			return nil, fmt.Errorf("Failed to get value at path %s: %v", w.Option.path, err)
+		}
+
+		// Create a new map with just the path data
+		newData := make(map[string]interface{})
+		err = setValueAtPath(newData, pathParts, value)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to set value at path %s: %v", w.Option.path, err)
+		}
+		data = newData
+	}
+
+	var writeErr error
+	if !w.Overwrite {
+		_, err := j.targetDocumentRef.Get(ctx)
+		if err == nil {
+			return nil, fmt.Errorf("Document %s already exists", j.targetDocumentRef.Path)
 		}
 	}
 
-	return result, nil
+	if w.Merge {
+		_, writeErr = j.targetDocumentRef.Set(ctx, data, firestore.MergeAll)
+	} else {
+		_, writeErr = j.targetDocumentRef.Set(ctx, data)
+	}
+
+	if writeErr != nil {
+		return nil, fmt.Errorf("Failed to write document %s: %v", j.targetDocumentRef.Path, writeErr)
+	}
+
+	return nil, nil
 }
 
 type CopyJob struct {
-	// iterateCollection iterateDocument copyDocument
-	name string
-
-	documentRef *firestore.DocumentRef
-
-	collectionIterator *firestore.CollectionIterator
-	targetDocumentRef  *firestore.DocumentRef
-
+	name                string
+	documentRef         *firestore.DocumentRef
+	collectionIterator  *firestore.CollectionIterator
+	targetDocumentRef   *firestore.DocumentRef
 	documentRefIterator *firestore.DocumentRefIterator
 	targetCollectionRef *firestore.CollectionRef
+	worker              *CopyWorker
 }
 
 func NewCollectionIterationJob(documentRef *firestore.DocumentRef, targetDocumentRef *firestore.DocumentRef) CopyJob {
@@ -396,4 +413,53 @@ func NewDocumentCopyJob(documentRef *firestore.DocumentRef, targetDocumentRef *f
 		documentRef:       documentRef,
 		targetDocumentRef: targetDocumentRef,
 	}
+}
+
+// getValueAtPath retrieves a value from a nested map using a path
+func getValueAtPath(data map[string]interface{}, pathParts []string) (interface{}, error) {
+	current := data
+	for i, part := range pathParts {
+		if i == len(pathParts)-1 {
+			if val, ok := current[part]; ok {
+				return val, nil
+			}
+			return nil, fmt.Errorf("path part %s not found", part)
+		}
+
+		next, ok := current[part]
+		if !ok {
+			return nil, fmt.Errorf("path part %s not found", part)
+		}
+
+		nextMap, ok := next.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("path part %s is not a map", part)
+		}
+		current = nextMap
+	}
+	return nil, fmt.Errorf("invalid path")
+}
+
+// setValueAtPath sets a value in a nested map using a path
+func setValueAtPath(data map[string]interface{}, pathParts []string, value interface{}) error {
+	current := data
+	for i, part := range pathParts {
+		if i == len(pathParts)-1 {
+			current[part] = value
+			return nil
+		}
+
+		next, ok := current[part]
+		if !ok {
+			next = make(map[string]interface{})
+			current[part] = next
+		}
+
+		nextMap, ok := next.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("path part %s is not a map", part)
+		}
+		current = nextMap
+	}
+	return nil
 }
