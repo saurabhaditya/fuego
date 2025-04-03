@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"time"
 
 	"cloud.google.com/go/firestore"
 )
@@ -51,15 +50,6 @@ func writeSnapshot(writer io.Writer, doc *firestore.DocumentSnapshot, extendedJs
 	if extendedJson {
 		transformFirestoreMapToExtendedJsonMap(data)
 	}
-	// Convert timestamp fields to _seconds and _nanoseconds format
-	// transformTimestampFields(data)
-	/*
-		"lastUpdatedAt": {
-			"_seconds": 1739319347,
-			"_nanoseconds": 418681000
-		}
-	*/
-
 	jsonString, err := marshallData(data, false)
 
 	if err != nil {
@@ -72,25 +62,4 @@ func writeSnapshot(writer io.Writer, doc *firestore.DocumentSnapshot, extendedJs
 		return err
 	}
 	return nil
-}
-
-// transformTimestampFields recursively converts all timestamp fields in a map to _seconds and _nanoseconds format
-func transformTimestampFields(m map[string]interface{}) {
-	for k, v := range m {
-		switch v := v.(type) {
-		case time.Time:
-			m[k] = map[string]interface{}{
-				"_seconds":     v.Unix(),
-				"_nanoseconds": int64(v.Nanosecond()),
-			}
-		case []interface{}:
-			for _, item := range v {
-				if itemMap, ok := item.(map[string]interface{}); ok {
-					transformTimestampFields(itemMap)
-				}
-			}
-		case map[string]interface{}:
-			transformTimestampFields(v)
-		}
-	}
 }
