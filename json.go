@@ -1,15 +1,16 @@
 package main
 
 import (
-	firestore "cloud.google.com/go/firestore"
 	"encoding/base64"
 	"encoding/json"
-	latlng "google.golang.org/genproto/googleapis/type/latlng"
 	"io/ioutil"
 	"math"
 	"regexp"
 	"strings"
 	"time"
+
+	firestore "cloud.google.com/go/firestore"
+	latlng "google.golang.org/genproto/googleapis/type/latlng"
 )
 
 var rfc3339regex, _ = regexp.Compile("^" + rfc3339pattern + "$")

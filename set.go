@@ -1,9 +1,11 @@
 package main
 
 import (
-	firestore "cloud.google.com/go/firestore"
 	"context"
 	"fmt"
+	"time"
+
+	firestore "cloud.google.com/go/firestore"
 	"github.com/urfave/cli"
 )
 
@@ -21,6 +23,7 @@ func setData(
 	}
 
 	transformExtendedJsonMapToFirestoreMap(object, client)
+	transformToTime(object)
 
 	var options []firestore.SetOption
 	if merge {
@@ -43,6 +46,33 @@ func setData(
 	}
 
 	return nil
+}
+
+// transform matching string to time.Time
+func transformToTime(m map[string]interface{}) {
+	for k, v := range m {
+		switch v := v.(type) {
+		case string:
+			// parse "2025-01-13T20:36:32.320825Z" into time.Time
+			if !rfc3339regex.MatchString(v) {
+				continue
+			}
+			t, err := time.Parse(time.RFC3339, v)
+			if err != nil {
+				fmt.Println("Unexpected error parsing rfc3339", v)
+				continue
+			}
+			m[k] = t
+		case []interface{}:
+			for _, item := range v {
+				if itemMap, ok := item.(map[string]interface{}); ok {
+					transformToTime(itemMap)
+				}
+			}
+		case map[string]interface{}:
+			transformToTime(v)
+		}
+	}
 }
 
 func setCommandAction(c *cli.Context) error {

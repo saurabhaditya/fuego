@@ -52,7 +52,7 @@ func writeSnapshot(writer io.Writer, doc *firestore.DocumentSnapshot, extendedJs
 		transformFirestoreMapToExtendedJsonMap(data)
 	}
 	// Convert timestamp fields to _seconds and _nanoseconds format
-	transformTimestampFields(data)
+	// transformTimestampFields(data)
 	/*
 		"lastUpdatedAt": {
 			"_seconds": 1739319347,
