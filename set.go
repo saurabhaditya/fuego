@@ -49,6 +49,13 @@ func setData(
 }
 
 // transform matching string to time.Time
+// also handle converting these types:
+/*
+  "createdAt": {
+    "_seconds": 1740160826,
+    "_nanoseconds": 25000000
+  },
+*/
 func transformToTime(m map[string]interface{}) {
 	for k, v := range m {
 		switch v := v.(type) {
@@ -63,14 +70,20 @@ func transformToTime(m map[string]interface{}) {
 				continue
 			}
 			m[k] = t
+		case map[string]interface{}:
+			if seconds, ok := v["_seconds"].(float64); ok {
+				if nanos, ok := v["_nanoseconds"].(float64); ok {
+					m[k] = time.Unix(int64(seconds), int64(nanos))
+					continue
+				}
+			}
+			transformToTime(v)
 		case []interface{}:
 			for _, item := range v {
 				if itemMap, ok := item.(map[string]interface{}); ok {
 					transformToTime(itemMap)
 				}
 			}
-		case map[string]interface{}:
-			transformToTime(v)
 		}
 	}
 }
